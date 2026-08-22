@@ -29,6 +29,7 @@ const speedDisplayEl = document.getElementById('speed-display');
 const btnAudio = document.getElementById('btn-audio');
 const volumeSliderEl = document.getElementById('volume-slider');
 const volumeDisplayEl = document.getElementById('volume-display');
+const btnVhs = document.getElementById('btn-vhs');
 
 /* ==========================================================================
    SYNTHESIZER SOUND ENGINE (Web Audio API)
@@ -755,14 +756,20 @@ if (btnPalette) {
   });
 }
 
+function updateVhsUI() {
+  document.body.classList.toggle('vhs-enabled', vhsEnabled);
+  if (btnVhs) {
+    btnVhs.textContent = `📺 VHS FX: ${vhsEnabled ? 'ON' : 'OFF'}`;
+    btnVhs.classList.toggle('active', vhsEnabled);
+  }
+}
+
 // VHS Filter Button
-const btnVhs = document.getElementById('btn-vhs');
 if (btnVhs) {
   btnVhs.addEventListener('click', (e) => {
     e.stopPropagation();
     vhsEnabled = !vhsEnabled;
-    if (crtOverlay) crtOverlay.style.opacity = vhsEnabled ? "0.85" : "0";
-    btnVhs.classList.toggle('active', vhsEnabled);
+    updateVhsUI();
   });
 }
 
@@ -801,6 +808,7 @@ window.addEventListener('touchstart', unlockAudio, { passive: true });
 
 window.addEventListener('DOMContentLoaded', () => {
   updateAudioUI();
+  updateVhsUI();
   resizeCanvas();
   initPosition();
   requestAnimationFrame(animate);
