@@ -23,6 +23,7 @@ const logoJpTag = document.querySelector('.logo-jp-tag');
 const cornerCountEl = document.getElementById('corner-count');
 const cornerCelebrationEl = document.getElementById('corner-celebration');
 const crtOverlay = document.getElementById('crt-overlay');
+const speedDisplayEl = document.getElementById('speed-display');
 
 /* ==========================================================================
    SYNTHESIZER SOUND ENGINE (Web Audio API)
@@ -42,7 +43,7 @@ function initAudio() {
 // Notes for harmonic pentatonic scale in vaporwave synth style
 const NOTES = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25, 783.99, 880.00];
 
-function playBounceSound(isCorner = false) {
+function playBounceSound(isCorner = false, speedFactor = 1.0) {
   if (!audioEnabled || !audioCtx) return;
 
   const now = audioCtx.currentTime;
@@ -67,21 +68,22 @@ function playBounceSound(isCorner = false) {
       osc.stop(now + (i * 0.06) + 1.3);
     });
   } else {
-    // Satisfying retro 80s FM Bell/Pluck sound
+    // Pitch shift higher with pinball high speed!
+    const baseFreq = NOTES[Math.floor(Math.random() * NOTES.length)] * Math.min(2.2, Math.max(0.8, speedFactor));
+    
     const osc1 = audioCtx.createOscillator();
     const osc2 = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
 
-    const baseFreq = NOTES[Math.floor(Math.random() * NOTES.length)];
-    
-    osc1.type = 'triangle';
+    osc1.type = speedFactor > 1.8 ? 'sawtooth' : 'triangle';
     osc1.frequency.setValueAtTime(baseFreq, now);
 
     osc2.type = 'sine';
     osc2.frequency.setValueAtTime(baseFreq * 2.01, now); // FM shimmer
 
-    gain.gain.setValueAtTime(0.2, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    const volume = Math.min(0.35, 0.15 + (speedFactor - 1) * 0.08);
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + (speedFactor > 2 ? 0.45 : 0.3));
 
     osc1.connect(gain);
     osc2.connect(gain);
@@ -89,13 +91,13 @@ function playBounceSound(isCorner = false) {
 
     osc1.start(now);
     osc2.start(now);
-    osc1.stop(now + 0.36);
-    osc2.stop(now + 0.36);
+    osc1.stop(now + 0.46);
+    osc2.stop(now + 0.46);
   }
 }
 
 /* ==========================================================================
-   DVD MOVEMENT & COLLISION LOGIC
+   DVD & PINBALL PHYSICS LOGIC
    ========================================================================== */
 const speedPresets = [
   { name: "Lento", mult: 0.65 },
@@ -107,7 +109,7 @@ let currentSpeedIndex = 1;
 
 let posX = 100;
 let posY = 100;
-let baseSpeed = 3.2;
+let baseSpeed = 3.5;
 let velX = baseSpeed;
 let velY = baseSpeed;
 
@@ -117,6 +119,8 @@ let logoHeight = 120;
 let isDragging = false;
 let dragStartX = 0;
 let dragStartY = 0;
+let dragHistory = []; // Rolling array of {x, y, time} for calculating fling velocity
+let lastMousePos = { x: 0, y: 0, time: 0 };
 let lastTime = performance.now();
 
 function updatePalette(index = null) {
@@ -144,7 +148,7 @@ function triggerCornerCelebration() {
   playBounceSound(true);
 
   // Particle explosion for corner hit
-  createCornerParticles(posX + logoWidth / 2, posY + logoHeight / 2);
+  createCornerParticles(posX + logoWidth / 2, posY + logoHeight / 2, 50);
 
   setTimeout(() => {
     if (cornerCelebrationEl) cornerCelebrationEl.classList.remove('active');
@@ -157,7 +161,6 @@ function measureLogo() {
   logoHeight = rect.height || 120;
 }
 
-// Set initial random location & directions
 function initPosition() {
   measureLogo();
   const maxX = Math.max(10, window.innerWidth - logoWidth);
@@ -174,6 +177,27 @@ function initPosition() {
   updatePalette(0);
 }
 
+// Spawns spark particles at wall collisions
+function spawnWallSparks(x, y, count = 12) {
+  const currentSpeed = Math.hypot(velX, velY);
+  const sparkCount = Math.min(30, Math.floor(count * (currentSpeed / 4)));
+  for (let i = 0; i < sparkCount; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd = Math.random() * (currentSpeed * 0.7) + 2;
+    particles.push({
+      x: x,
+      y: y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd,
+      size: Math.random() * 4 + 2,
+      color: PALETTES[currentPaletteIndex].color,
+      alpha: 1,
+      life: 1
+    });
+  }
+}
+
+// Pinball Main Animation Loop
 function animate(now) {
   const dt = Math.min((now - lastTime) / 16.666, 2.5); // normalized frame delta
   lastTime = now;
@@ -187,16 +211,20 @@ function animate(now) {
 
     let hitX = false;
     let hitY = false;
+    let impactX = posX + logoWidth / 2;
+    let impactY = posY + logoHeight / 2;
 
     // Collision detection Left & Right
     if (posX <= 0) {
       posX = 0;
       velX = Math.abs(velX);
       hitX = true;
+      impactX = 0;
     } else if (posX >= maxX) {
       posX = maxX;
       velX = -Math.abs(velX);
       hitX = true;
+      impactX = maxX + logoWidth;
     }
 
     // Collision detection Top & Bottom
@@ -204,19 +232,58 @@ function animate(now) {
       posY = 0;
       velY = Math.abs(velY);
       hitY = true;
+      impactY = 0;
     } else if (posY >= maxY) {
       posY = maxY;
       velY = -Math.abs(velY);
       hitY = true;
+      impactY = maxY + logoHeight;
     }
 
-    // Check for corner hit or standard wall bounce
+    const currentSpeed = Math.hypot(velX, velY);
+    const targetCruiseSpeed = baseSpeed * speedPresets[currentSpeedIndex].mult;
+
+    // Gentle friction / air resistance when flying at high pinball speeds
+    if (currentSpeed > targetCruiseSpeed) {
+      const decayFactor = 0.995; // Keeps the high speed fun for several bounces
+      velX *= Math.pow(decayFactor, dt);
+      velY *= Math.pow(decayFactor, dt);
+
+      // Create glowing speed trail particles behind the logo
+      if (Math.random() < 0.6) {
+        particles.push({
+          x: posX + logoWidth / 2 + (Math.random() - 0.5) * 40,
+          y: posY + logoHeight / 2 + (Math.random() - 0.5) * 20,
+          vx: -velX * 0.15,
+          vy: -velY * 0.15,
+          size: Math.random() * 5 + 3,
+          color: PALETTES[currentPaletteIndex].color,
+          alpha: 0.8,
+          life: 1
+        });
+      }
+    } else if (currentSpeed < targetCruiseSpeed * 0.9) {
+      // Ensure minimum cruising velocity
+      const scale = targetCruiseSpeed / (currentSpeed || 1);
+      velX *= scale;
+      velY *= scale;
+    }
+
+    // Wall impact handling
     if (hitX && hitY) {
       triggerCornerCelebration();
       updatePalette();
     } else if (hitX || hitY) {
       updatePalette();
-      playBounceSound(false);
+      const speedFactor = currentSpeed / baseSpeed;
+      playBounceSound(false, speedFactor);
+      spawnWallSparks(impactX, impactY, 15);
+    }
+
+    // Update HUD Speedometer
+    if (speedDisplayEl) {
+      const kmh = Math.round(currentSpeed * 28);
+      speedDisplayEl.textContent = `${kmh} KM/H`;
     }
 
     dvdContainer.style.transform = `translate3d(${posX}px, ${posY}px, 0)`;
@@ -225,32 +292,132 @@ function animate(now) {
   requestAnimationFrame(animate);
 }
 
-// Touch & Mouse Drag Interaction
+/* ==========================================================================
+   INTERACTIVE PINBALL FLING & MOUSE BUMP (REBATIDA)
+   ========================================================================== */
+
+// 1. Drag & Fling with Momentum
 dvdContainer.addEventListener('pointerdown', (e) => {
+  initAudio();
   isDragging = true;
   dragStartX = e.clientX - posX;
   dragStartY = e.clientY - posY;
+  dragHistory = [{ x: e.clientX, y: e.clientY, time: performance.now() }];
   dvdContainer.setPointerCapture(e.pointerId);
 });
 
 window.addEventListener('pointermove', (e) => {
+  const now = performance.now();
+
   if (isDragging) {
     posX = Math.max(0, Math.min(window.innerWidth - logoWidth, e.clientX - dragStartX));
     posY = Math.max(0, Math.min(window.innerHeight - logoHeight, e.clientY - dragStartY));
     dvdContainer.style.transform = `translate3d(${posX}px, ${posY}px, 0)`;
+
+    // Record position history for fling calculation (keep last 120ms)
+    dragHistory.push({ x: e.clientX, y: e.clientY, time: now });
+    while (dragHistory.length > 0 && now - dragHistory[0].time > 120) {
+      dragHistory.shift();
+    }
+  } else {
+    // 2. Mouse Flipper / Slap Collision: If user moves mouse rapidly across logo, kick it!
+    if (lastMousePos.time > 0) {
+      const dt = now - lastMousePos.time;
+      if (dt > 5 && dt < 80) {
+        const mouseDx = e.clientX - lastMousePos.x;
+        const mouseDy = e.clientY - lastMousePos.y;
+        const mouseSpeed = Math.hypot(mouseDx, mouseDy) / dt; // px per ms
+
+        // If mouse is moving fast (> 1.2 px/ms) and intersects with logo bounding box
+        if (mouseSpeed > 1.2) {
+          if (
+            e.clientX >= posX - 20 && e.clientX <= posX + logoWidth + 20 &&
+            e.clientY >= posY - 20 && e.clientY <= posY + logoHeight + 20
+          ) {
+            // Apply pinball kick in mouse swipe direction!
+            const impulse = Math.min(32, mouseSpeed * 18);
+            const angle = Math.atan2(mouseDy, mouseDx);
+            velX = Math.cos(angle) * impulse;
+            velY = Math.sin(angle) * impulse;
+            
+            updatePalette();
+            playBounceSound(false, 2.2);
+            spawnWallSparks(e.clientX, e.clientY, 25);
+          }
+        }
+      }
+    }
+    lastMousePos = { x: e.clientX, y: e.clientY, time: now };
   }
 });
 
 window.addEventListener('pointerup', (e) => {
   if (isDragging) {
     isDragging = false;
-    // Give it a kick in the direction of release
-    const speedMult = speedPresets[currentSpeedIndex].mult;
-    velX = (Math.random() > 0.5 ? 1 : -1) * baseSpeed * speedMult;
-    velY = (Math.random() > 0.5 ? 1 : -1) * baseSpeed * speedMult;
+    const now = performance.now();
+
+    // Calculate throw velocity from drag history
+    if (dragHistory.length >= 2) {
+      const oldest = dragHistory[0];
+      const timeDelta = Math.max(16, now - oldest.time);
+      const moveX = e.clientX - oldest.x;
+      const moveY = e.clientY - oldest.y;
+
+      // High-energy pinball throw velocity multiplier
+      let throwVx = (moveX / timeDelta) * 22;
+      let throwVy = (moveY / timeDelta) * 22;
+      const throwSpeed = Math.hypot(throwVx, throwVy);
+
+      if (throwSpeed > 4) {
+        // Cap max throw speed to a thrilling 38px/frame
+        const maxSpeed = 38;
+        if (throwSpeed > maxSpeed) {
+          throwVx = (throwVx / throwSpeed) * maxSpeed;
+          throwVy = (throwVy / throwSpeed) * maxSpeed;
+        }
+        velX = throwVx;
+        velY = throwVy;
+      } else {
+        const speedMult = speedPresets[currentSpeedIndex].mult;
+        velX = (Math.random() > 0.5 ? 1 : -1) * baseSpeed * speedMult;
+        velY = (Math.random() > 0.5 ? 1 : -1) * baseSpeed * speedMult;
+      }
+    }
+
     updatePalette();
-    playBounceSound(false);
+    const currentSpeed = Math.hypot(velX, velY);
+    playBounceSound(false, currentSpeed / baseSpeed);
+    spawnWallSparks(posX + logoWidth / 2, posY + logoHeight / 2, 20);
   }
+});
+
+// 3. Screen Click Pinball Pulse (Clique em qualquer lugar para rebater/lançar!)
+window.addEventListener('pointerdown', (e) => {
+  // If clicked on controls, ignore
+  if (e.target.closest('.floating-hud-controls') || e.target.closest('#dvd-container')) return;
+
+  initAudio();
+
+  const clickX = e.clientX;
+  const clickY = e.clientY;
+  const logoCenterX = posX + logoWidth / 2;
+  const logoCenterY = posY + logoHeight / 2;
+
+  const dx = logoCenterX - clickX;
+  const dy = logoCenterY - clickY;
+  const dist = Math.hypot(dx, dy);
+
+  // Pinball shockwave impulse away from click point
+  const angle = Math.atan2(dy, dx);
+  const power = Math.max(18, Math.min(35, (window.innerWidth / (dist + 80)) * 25));
+
+  velX = Math.cos(angle) * power;
+  velY = Math.sin(angle) * power;
+
+  // Create shockwave effect on click location
+  spawnWallSparks(clickX, clickY, 20);
+  updatePalette();
+  playBounceSound(false, power / 12);
 });
 
 window.addEventListener('resize', () => {
@@ -289,16 +456,16 @@ function initStars() {
   }
 }
 
-function createCornerParticles(x, y) {
-  for (let i = 0; i < 40; i++) {
+function createCornerParticles(x, y, count = 40) {
+  for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2;
-    const speed = Math.random() * 6 + 2;
+    const speed = Math.random() * 8 + 3;
     particles.push({
       x: x,
       y: y,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
-      size: Math.random() * 5 + 2,
+      size: Math.random() * 6 + 2,
       color: PALETTES[Math.floor(Math.random() * PALETTES.length)].color,
       alpha: 1,
       life: 1
@@ -389,7 +556,6 @@ function drawBackground(time) {
   const numHoriz = 14;
   for (let i = 0; i < numHoriz; i++) {
     const progress = (i + (gridOffset / 30)) / numHoriz;
-    // Exponential scale for 3D depth perspective
     const lineY = horizonY + Math.pow(progress, 2.5) * (canvas.height - horizonY);
     const lineAlpha = Math.pow(progress, 1.5);
     ctx.strokeStyle = `rgba(1, 205, 254, ${lineAlpha * 0.7})`;
@@ -400,15 +566,15 @@ function drawBackground(time) {
   }
   ctx.restore();
 
-  // 4. Update and Draw Corner Hit Particles
+  // 4. Update and Draw Particles / Sparks / Trails
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx;
     p.y += p.vy;
-    p.alpha -= 0.015;
-    p.size *= 0.98;
+    p.alpha -= 0.02;
+    p.size *= 0.97;
 
-    if (p.alpha <= 0 || p.size <= 0.5) {
+    if (p.alpha <= 0 || p.size <= 0.4) {
       particles.splice(i, 1);
       continue;
     }
@@ -416,8 +582,8 @@ function drawBackground(time) {
     ctx.save();
     ctx.fillStyle = p.color;
     ctx.shadowColor = p.color;
-    ctx.shadowBlur = 10;
-    ctx.globalAlpha = p.alpha;
+    ctx.shadowBlur = 8;
+    ctx.globalAlpha = Math.max(0, p.alpha);
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
     ctx.fill();
@@ -445,7 +611,8 @@ setInterval(updateTimecode, 1000);
 // Audio Button
 const btnAudio = document.getElementById('btn-audio');
 if (btnAudio) {
-  btnAudio.addEventListener('click', () => {
+  btnAudio.addEventListener('click', (e) => {
+    e.stopPropagation();
     initAudio();
     audioEnabled = !audioEnabled;
     btnAudio.textContent = audioEnabled ? "🔊 Áudio: ON" : "🔇 Áudio: OFF";
@@ -459,7 +626,8 @@ if (btnAudio) {
 // Speed Button
 const btnSpeed = document.getElementById('btn-speed');
 if (btnSpeed) {
-  btnSpeed.addEventListener('click', () => {
+  btnSpeed.addEventListener('click', (e) => {
+    e.stopPropagation();
     currentSpeedIndex = (currentSpeedIndex + 1) % speedPresets.length;
     const sp = speedPresets[currentSpeedIndex];
     btnSpeed.textContent = `⚡ Velocidade: ${sp.name}`;
@@ -474,7 +642,8 @@ if (btnSpeed) {
 // Palette / Color Button
 const btnPalette = document.getElementById('btn-palette');
 if (btnPalette) {
-  btnPalette.addEventListener('click', () => {
+  btnPalette.addEventListener('click', (e) => {
+    e.stopPropagation();
     updatePalette();
     playBounceSound(false);
   });
@@ -483,7 +652,8 @@ if (btnPalette) {
 // VHS Filter Button
 const btnVhs = document.getElementById('btn-vhs');
 if (btnVhs) {
-  btnVhs.addEventListener('click', () => {
+  btnVhs.addEventListener('click', (e) => {
+    e.stopPropagation();
     vhsEnabled = !vhsEnabled;
     if (crtOverlay) crtOverlay.style.opacity = vhsEnabled ? "0.85" : "0";
     btnVhs.classList.toggle('active', vhsEnabled);
@@ -493,7 +663,8 @@ if (btnVhs) {
 // Fullscreen Button
 const btnFullscreen = document.getElementById('btn-fullscreen');
 if (btnFullscreen) {
-  btnFullscreen.addEventListener('click', () => {
+  btnFullscreen.addEventListener('click', (e) => {
+    e.stopPropagation();
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(err => {
         console.warn(`Fullscreen error: ${err.message}`);
