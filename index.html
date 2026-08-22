@@ -65,7 +65,13 @@
 
   <!-- Floating Controls -->
   <div class="floating-hud-controls">
-    <button class="ctrl-btn" id="btn-audio">🔊 Áudio: OFF</button>
+    <div class="ctrl-volume-group">
+      <button class="ctrl-btn active" id="btn-audio" title="Ativar/Desativar Áudio">🔉 Áudio: ON</button>
+      <div class="volume-slider-wrapper">
+        <input type="range" id="volume-slider" min="0" max="100" value="20" step="1" aria-label="Controle de Volume">
+        <span id="volume-display" class="volume-display">20%</span>
+      </div>
+    </div>
     <button class="ctrl-btn" id="btn-speed">⚡ Velocidade: Normal</button>
     <button class="ctrl-btn" id="btn-palette">🎨 Cor: Alternar</button>
     <button class="ctrl-btn" id="btn-vhs">📺 VHS FX</button>

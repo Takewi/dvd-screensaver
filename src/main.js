@@ -14,7 +14,9 @@ const PALETTES = [
 
 let currentPaletteIndex = 0;
 let cornerHits = 0;
-let audioEnabled = false;
+let audioEnabled = true;
+let volume = 0.2;
+let previousVolume = 0.2;
 let vhsEnabled = true;
 
 const dvdContainer = document.getElementById('dvd-container');
@@ -24,19 +26,49 @@ const cornerCountEl = document.getElementById('corner-count');
 const cornerCelebrationEl = document.getElementById('corner-celebration');
 const crtOverlay = document.getElementById('crt-overlay');
 const speedDisplayEl = document.getElementById('speed-display');
+const btnAudio = document.getElementById('btn-audio');
+const volumeSliderEl = document.getElementById('volume-slider');
+const volumeDisplayEl = document.getElementById('volume-display');
 
 /* ==========================================================================
    SYNTHESIZER SOUND ENGINE (Web Audio API)
    Retro 80s FM Synth Bouncing Chimes & Corner Hit Fanfare
    ========================================================================== */
 let audioCtx = null;
+let masterGainNode = null;
 
 function initAudio() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGainNode = audioCtx.createGain();
+    masterGainNode.gain.setValueAtTime(audioEnabled ? volume : 0, audioCtx.currentTime);
+    masterGainNode.connect(audioCtx.destination);
   }
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
+  }
+}
+
+function getAudioIcon(vol, enabled) {
+  if (!enabled || vol === 0) return "🔇";
+  if (vol < 0.5) return "🔉";
+  return "🔊";
+}
+
+function updateAudioUI() {
+  const icon = getAudioIcon(volume, audioEnabled);
+  if (btnAudio) {
+    btnAudio.textContent = `${icon} Áudio: ${audioEnabled ? 'ON' : 'OFF'}`;
+    btnAudio.classList.toggle('active', audioEnabled);
+  }
+  if (volumeDisplayEl) {
+    volumeDisplayEl.textContent = `${Math.round(volume * 100)}%`;
+  }
+  if (volumeSliderEl) {
+    volumeSliderEl.value = Math.round(volume * 100);
+  }
+  if (masterGainNode && audioCtx) {
+    masterGainNode.gain.setValueAtTime(audioEnabled ? volume : 0, audioCtx.currentTime);
   }
 }
 
@@ -44,7 +76,7 @@ function initAudio() {
 const NOTES = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25, 783.99, 880.00];
 
 function playBounceSound(isCorner = false, speedFactor = 1.0) {
-  if (!audioEnabled || !audioCtx) return;
+  if (!audioEnabled || !audioCtx || !masterGainNode) return;
 
   const now = audioCtx.currentTime;
 
@@ -62,7 +94,7 @@ function playBounceSound(isCorner = false, speedFactor = 1.0) {
       gain.gain.exponentialRampToValueAtTime(0.001, now + (i * 0.06) + 1.2);
 
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(masterGainNode);
 
       osc.start(now + (i * 0.06));
       osc.stop(now + (i * 0.06) + 1.3);
@@ -81,13 +113,13 @@ function playBounceSound(isCorner = false, speedFactor = 1.0) {
     osc2.type = 'sine';
     osc2.frequency.setValueAtTime(baseFreq * 2.01, now); // FM shimmer
 
-    const volume = Math.min(0.35, 0.15 + (speedFactor - 1) * 0.08);
-    gain.gain.setValueAtTime(volume, now);
+    const vol = Math.min(0.35, 0.15 + (speedFactor - 1) * 0.08);
+    gain.gain.setValueAtTime(vol, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + (speedFactor > 2 ? 0.45 : 0.3));
 
     osc1.connect(gain);
     osc2.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(masterGainNode);
 
     osc1.start(now);
     osc2.start(now);
@@ -608,19 +640,48 @@ function updateTimecode() {
 }
 setInterval(updateTimecode, 1000);
 
-// Audio Button
-const btnAudio = document.getElementById('btn-audio');
+// Audio & Volume Controls
 if (btnAudio) {
   btnAudio.addEventListener('click', (e) => {
     e.stopPropagation();
     initAudio();
     audioEnabled = !audioEnabled;
-    btnAudio.textContent = audioEnabled ? "🔊 Áudio: ON" : "🔇 Áudio: OFF";
-    btnAudio.classList.toggle('active', audioEnabled);
+    if (audioEnabled && volume === 0) {
+      volume = previousVolume > 0 ? previousVolume : 0.7;
+    }
+    updateAudioUI();
     if (audioEnabled) {
       playBounceSound(false);
     }
   });
+}
+
+if (volumeSliderEl) {
+  volumeSliderEl.addEventListener('input', (e) => {
+    e.stopPropagation();
+    initAudio();
+    const newVol = parseFloat(e.target.value) / 100;
+    volume = newVol;
+    if (volume > 0) {
+      previousVolume = volume;
+      if (!audioEnabled) {
+        audioEnabled = true;
+      }
+    } else {
+      audioEnabled = false;
+    }
+    updateAudioUI();
+  });
+
+  volumeSliderEl.addEventListener('change', (e) => {
+    e.stopPropagation();
+    if (audioEnabled && volume > 0) {
+      playBounceSound(false);
+    }
+  });
+
+  volumeSliderEl.addEventListener('pointerdown', (e) => e.stopPropagation());
+  volumeSliderEl.addEventListener('pointerup', (e) => e.stopPropagation());
 }
 
 // Speed Button
@@ -680,7 +741,21 @@ if (btnFullscreen) {
 /* ==========================================================================
    INITIALIZATION
    ========================================================================== */
+// Transparently unlock AudioContext on the user's first interaction
+const unlockAudio = () => {
+  if (audioEnabled) {
+    initAudio();
+  }
+  window.removeEventListener('pointerdown', unlockAudio);
+  window.removeEventListener('keydown', unlockAudio);
+  window.removeEventListener('touchstart', unlockAudio);
+};
+window.addEventListener('pointerdown', unlockAudio, { passive: true });
+window.addEventListener('keydown', unlockAudio, { passive: true });
+window.addEventListener('touchstart', unlockAudio, { passive: true });
+
 window.addEventListener('DOMContentLoaded', () => {
+  updateAudioUI();
   resizeCanvas();
   initPosition();
   requestAnimationFrame(animate);
