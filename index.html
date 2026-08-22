@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -36,7 +36,7 @@
     
     <div class="hud-bottom">
       <div>
-        <span style="opacity: 0.8; font-size: 18px;">🕹️ ARRASTE, LANCE OU CLIQUE PARA REBATER</span>
+        <span style="opacity: 0.8; font-size: 18px;">🕹️ DRAG, FLING OR CLICK TO BOUNCE</span>
       </div>
       <div class="corner-counter">
         <span>CORNER HITS: </span>
@@ -66,16 +66,16 @@
   <!-- Floating Controls -->
   <div class="floating-hud-controls">
     <div class="ctrl-volume-group">
-      <button class="ctrl-btn active" id="btn-audio" title="Ativar/Desativar Áudio">🔉 Áudio: ON</button>
+      <button class="ctrl-btn active" id="btn-audio" title="Toggle Audio">🔉 Audio: ON</button>
       <div class="volume-slider-wrapper">
-        <input type="range" id="volume-slider" min="0" max="100" value="20" step="1" aria-label="Controle de Volume">
+        <input type="range" id="volume-slider" min="0" max="100" value="20" step="1" aria-label="Volume Control">
         <span id="volume-display" class="volume-display">20%</span>
       </div>
     </div>
-    <button class="ctrl-btn" id="btn-speed">⚡ Velocidade: Normal</button>
-    <button class="ctrl-btn" id="btn-palette">🎨 Cor: Alternar</button>
+    <button class="ctrl-btn" id="btn-speed">⚡ Speed: Normal</button>
+    <button class="ctrl-btn" id="btn-palette">🎨 Color: Cycle</button>
     <button class="ctrl-btn" id="btn-vhs">📺 VHS FX</button>
-    <button class="ctrl-btn" id="btn-fullscreen">⛶ Tela Cheia</button>
+    <button class="ctrl-btn" id="btn-fullscreen">⛶ Fullscreen</button>
   </div>
 
   <script type="module" src="./src/main.js"></script>

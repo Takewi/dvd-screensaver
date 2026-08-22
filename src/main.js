@@ -58,7 +58,7 @@ function getAudioIcon(vol, enabled) {
 function updateAudioUI() {
   const icon = getAudioIcon(volume, audioEnabled);
   if (btnAudio) {
-    btnAudio.textContent = `${icon} Áudio: ${audioEnabled ? 'ON' : 'OFF'}`;
+    btnAudio.textContent = `${icon} Audio: ${audioEnabled ? 'ON' : 'OFF'}`;
     btnAudio.classList.toggle('active', audioEnabled);
   }
   if (volumeDisplayEl) {
@@ -132,9 +132,9 @@ function playBounceSound(isCorner = false, speedFactor = 1.0) {
    DVD & PINBALL PHYSICS LOGIC
    ========================================================================== */
 const speedPresets = [
-  { name: "Lento", mult: 0.65 },
+  { name: "Slow", mult: 0.65 },
   { name: "Normal", mult: 1.0 },
-  { name: "Rápido", mult: 1.7 },
+  { name: "Fast", mult: 1.7 },
   { name: "Turbo", mult: 2.8 }
 ];
 let currentSpeedIndex = 1;
@@ -736,7 +736,7 @@ if (btnSpeed) {
     e.stopPropagation();
     currentSpeedIndex = (currentSpeedIndex + 1) % speedPresets.length;
     const sp = speedPresets[currentSpeedIndex];
-    btnSpeed.textContent = `⚡ Velocidade: ${sp.name}`;
+    btnSpeed.textContent = `⚡ Speed: ${sp.name}`;
     
     const dirX = Math.sign(velX) || 1;
     const dirY = Math.sign(velY) || 1;
