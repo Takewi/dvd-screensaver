@@ -153,6 +153,8 @@ let dragStartX = 0;
 let dragStartY = 0;
 let dragHistory = []; // Rolling array of {x, y, time} for calculating fling velocity
 let lastMousePos = { x: 0, y: 0, time: 0 };
+let lastDragEndTime = 0;
+let lastSlapTime = 0;
 let lastTime = performance.now();
 
 function updatePalette(index = null) {
@@ -334,8 +336,12 @@ dvdContainer.addEventListener('pointerdown', (e) => {
   isDragging = true;
   dragStartX = e.clientX - posX;
   dragStartY = e.clientY - posY;
-  dragHistory = [{ x: e.clientX, y: e.clientY, time: performance.now() }];
-  dvdContainer.setPointerCapture(e.pointerId);
+  const now = performance.now();
+  dragHistory = [{ x: e.clientX, y: e.clientY, time: now }];
+  lastMousePos = { x: e.clientX, y: e.clientY, time: now };
+  try {
+    dvdContainer.setPointerCapture(e.pointerId);
+  } catch (err) {}
 });
 
 window.addEventListener('pointermove', (e) => {
@@ -346,13 +352,18 @@ window.addEventListener('pointermove', (e) => {
     posY = Math.max(0, Math.min(window.innerHeight - logoHeight, e.clientY - dragStartY));
     dvdContainer.style.transform = `translate3d(${posX}px, ${posY}px, 0)`;
 
-    // Record position history for fling calculation (keep last 120ms)
+    // Keep high-frequency recent samples (last 75ms) for accurate release velocity
     dragHistory.push({ x: e.clientX, y: e.clientY, time: now });
-    while (dragHistory.length > 0 && now - dragHistory[0].time > 120) {
+    while (dragHistory.length > 0 && now - dragHistory[0].time > 75) {
       dragHistory.shift();
     }
   } else {
-    // 2. Mouse Flipper / Slap Collision: If user moves mouse rapidly across logo, kick it!
+    // 2. Mouse Flipper / Slap Collision (ignored right after drag release to prevent stopping/fighting thrown card)
+    if (now - lastDragEndTime < 450 || now - lastSlapTime < 140) {
+      lastMousePos = { x: e.clientX, y: e.clientY, time: now };
+      return;
+    }
+
     if (lastMousePos.time > 0) {
       const dt = now - lastMousePos.time;
       if (dt > 5 && dt < 80) {
@@ -366,8 +377,9 @@ window.addEventListener('pointermove', (e) => {
             e.clientX >= posX - 20 && e.clientX <= posX + logoWidth + 20 &&
             e.clientY >= posY - 20 && e.clientY <= posY + logoHeight + 20
           ) {
+            lastSlapTime = now;
             // Apply pinball kick in mouse swipe direction!
-            const impulse = Math.min(32, mouseSpeed * 18);
+            const impulse = Math.min(32, Math.max(16, mouseSpeed * 18));
             const angle = Math.atan2(mouseDy, mouseDx);
             velX = Math.cos(angle) * impulse;
             velY = Math.sin(angle) * impulse;
@@ -383,45 +395,78 @@ window.addEventListener('pointermove', (e) => {
   }
 });
 
-window.addEventListener('pointerup', (e) => {
-  if (isDragging) {
-    isDragging = false;
-    const now = performance.now();
+function handlePointerRelease(e) {
+  if (!isDragging) return;
+  isDragging = false;
+  const now = performance.now();
+  lastDragEndTime = now;
+  lastMousePos = { x: 0, y: 0, time: 0 };
 
-    // Calculate throw velocity from drag history
-    if (dragHistory.length >= 2) {
-      const oldest = dragHistory[0];
-      const timeDelta = Math.max(16, now - oldest.time);
-      const moveX = e.clientX - oldest.x;
-      const moveY = e.clientY - oldest.y;
+  try {
+    if (dvdContainer.hasPointerCapture(e.pointerId)) {
+      dvdContainer.releasePointerCapture(e.pointerId);
+    }
+  } catch (err) {}
 
-      // High-energy pinball throw velocity multiplier
-      let throwVx = (moveX / timeDelta) * 22;
-      let throwVy = (moveY / timeDelta) * 22;
-      const throwSpeed = Math.hypot(throwVx, throwVy);
+  const lastSample = dragHistory[dragHistory.length - 1];
+  const timeSinceLastMove = lastSample ? now - lastSample.time : 999;
+  let thrown = false;
 
-      if (throwSpeed > 4) {
-        // Cap max throw speed to a thrilling 38px/frame
-        const maxSpeed = 38;
-        if (throwSpeed > maxSpeed) {
-          throwVx = (throwVx / throwSpeed) * maxSpeed;
-          throwVy = (throwVy / throwSpeed) * maxSpeed;
-        }
-        velX = throwVx;
-        velY = throwVy;
-      } else {
-        const speedMult = speedPresets[currentSpeedIndex].mult;
-        velX = (Math.random() > 0.5 ? 1 : -1) * baseSpeed * speedMult;
-        velY = (Math.random() > 0.5 ? 1 : -1) * baseSpeed * speedMult;
+  // Calculate throw velocity from recent motion if released while moving
+  if (dragHistory.length >= 2 && timeSinceLastMove < 70) {
+    const oldest = dragHistory[0];
+    const dt = Math.max(10, lastSample.time - oldest.time);
+    const dx = lastSample.x - oldest.x;
+    const dy = lastSample.y - oldest.y;
+
+    // Convert px/ms to px per frame (~16.6ms) with responsive throw boost
+    const frameSpeedMult = 16.666;
+    const flingBoost = 1.4;
+    let throwVx = (dx / dt) * frameSpeedMult * flingBoost;
+    let throwVy = (dy / dt) * frameSpeedMult * flingBoost;
+    const throwSpeed = Math.hypot(throwVx, throwVy);
+
+    const minThrowSpeed = 3.0;
+    const maxThrowSpeed = 36.0;
+
+    if (throwSpeed > minThrowSpeed) {
+      if (throwSpeed > maxThrowSpeed) {
+        throwVx = (throwVx / throwSpeed) * maxThrowSpeed;
+        throwVy = (throwVy / throwSpeed) * maxThrowSpeed;
       }
+      velX = throwVx;
+      velY = throwVy;
+      thrown = true;
+    }
+  }
+
+  if (!thrown) {
+    // Gentle release: preserve active preset cruising speed in natural drag direction
+    const speedMult = speedPresets[currentSpeedIndex].mult;
+    const targetSpeed = baseSpeed * speedMult;
+    
+    let dirX = Math.sign(velX) || 1;
+    let dirY = Math.sign(velY) || 1;
+
+    if (dragHistory.length >= 2) {
+      const dx = dragHistory[dragHistory.length - 1].x - dragHistory[0].x;
+      const dy = dragHistory[dragHistory.length - 1].y - dragHistory[0].y;
+      if (Math.abs(dx) > 2) dirX = Math.sign(dx);
+      if (Math.abs(dy) > 2) dirY = Math.sign(dy);
     }
 
-    updatePalette();
-    const currentSpeed = Math.hypot(velX, velY);
-    playBounceSound(false, currentSpeed / baseSpeed);
-    spawnWallSparks(posX + logoWidth / 2, posY + logoHeight / 2, 20);
+    velX = dirX * targetSpeed;
+    velY = dirY * targetSpeed;
   }
-});
+
+  updatePalette();
+  const currentSpeed = Math.hypot(velX, velY);
+  playBounceSound(false, currentSpeed / baseSpeed);
+  spawnWallSparks(posX + logoWidth / 2, posY + logoHeight / 2, thrown ? 24 : 12);
+}
+
+window.addEventListener('pointerup', handlePointerRelease);
+window.addEventListener('pointercancel', handlePointerRelease);
 
 // 3. Screen Click Pinball Pulse (Clique em qualquer lugar para rebater/lançar!)
 window.addEventListener('pointerdown', (e) => {
