@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ｔａｋｅｗｉ // ＤＶＤ ＳＣＲＥＥＮＳＡＶＥＲ</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Righteous&family=VT323&family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+
+  <!-- Background Synthwave & Starfield Canvas -->
+  <canvas id="bg-canvas"></canvas>
+  <div class="bg-gradient"></div>
+  <div class="crt-overlay" id="crt-overlay"></div>
+  <div class="vignette"></div>
+
+  <!-- VHS Overlay HUD -->
+  <div class="vhs-hud">
+    <div class="hud-top">
+      <div class="play-indicator">
+        <span class="play-symbol">▶</span>
+        <span>PLAY</span>
+        <span style="color: var(--vapor-cyan); font-size: 18px; margin-left: 10px;">SP 4:3 VHS</span>
+      </div>
+      <div>
+        <span id="timecode">00:00:00</span>
+      </div>
+    </div>
+    
+    <div class="hud-bottom">
+      <div>
+        <span style="opacity: 0.7;">STEREO // NTSC</span>
+      </div>
+      <div class="corner-counter">
+        <span>CORNER HITS: </span>
+        <span class="counter-val" id="corner-count">0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DVD Bouncing Logo Element -->
+  <div id="dvd-container">
+    <div class="vapor-logo" id="vapor-logo">
+      <div class="logo-jp-tag">タケウィ ・ ＶＡＰＯＲ</div>
+      <div class="logo-main-text" id="logo-text">takewi</div>
+      <div class="dvd-sub-badge">
+        <div class="dvd-disc-icon"></div>
+        <span class="dvd-text-label">DVD VIDEO</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Corner Hit Celebration Notification -->
+  <div id="corner-celebration">
+    ✨ CORNER HIT! ✨<br>
+    <span style="font-size: 16px; color: var(--vapor-cyan);">Ｐ Ｅ Ｒ Ｆ Ｅ Ｃ Ｔ　Ｂ Ｏ Ｕ Ｎ Ｃ Ｅ</span>
+  </div>
+
+  <!-- Floating Controls -->
+  <div class="floating-hud-controls">
+    <button class="ctrl-btn" id="btn-audio">🔊 Áudio: OFF</button>
+    <button class="ctrl-btn" id="btn-speed">⚡ Velocidade: Normal</button>
+    <button class="ctrl-btn" id="btn-palette">🎨 Cor: Alternar</button>
+    <button class="ctrl-btn" id="btn-vhs">📺 VHS FX</button>
+    <button class="ctrl-btn" id="btn-fullscreen">⛶ Tela Cheia</button>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
