@@ -170,10 +170,18 @@ function updatePalette(index = null) {
   document.documentElement.style.setProperty('--active-glow', p.glow);
   if (logoJpTag) logoJpTag.textContent = p.jp;
 
-  // Quick squash/stretch animation
-  vaporLogo.classList.remove('bounce-pulse');
-  void vaporLogo.offsetWidth; // trigger reflow
-  vaporLogo.classList.add('bounce-pulse');
+  // Hardware-accelerated squash/stretch animation via Web Animations API (no forced layout reflow)
+  if (vaporLogo && vaporLogo.animate) {
+    vaporLogo.animate([
+      { transform: 'scale(1)' },
+      { transform: 'scale(1.15, 0.88)', offset: 0.3 },
+      { transform: 'scale(0.92, 1.08)', offset: 0.6 },
+      { transform: 'scale(1)' }
+    ], {
+      duration: 300,
+      easing: 'cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+    });
+  }
 }
 
 function triggerCornerCelebration() {
@@ -232,11 +240,8 @@ function spawnWallSparks(x, y, count = 12) {
   }
 }
 
-// Pinball Main Animation Loop
-function animate(now) {
-  const dt = Math.min((now - lastTime) / 16.666, 2.5); // normalized frame delta
-  lastTime = now;
-
+// Pinball Physics Update
+function updatePhysics(dt) {
   if (!isDragging) {
     posX += velX * dt;
     posY += velY * dt;
@@ -323,8 +328,6 @@ function animate(now) {
 
     dvdContainer.style.transform = `translate3d(${posX}px, ${posY}px, 0)`;
   }
-
-  requestAnimationFrame(animate);
 }
 
 /* ==========================================================================
@@ -556,21 +559,35 @@ function drawBackground(time) {
 
   const horizonY = canvas.height * 0.62;
 
-  // 1. Draw Starfield
-  for (let star of stars) {
-    star.alpha += Math.sin(time * 0.003 + star.x) * 0.01;
-    ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.1, Math.min(1, star.alpha))})`;
-    ctx.beginPath();
-    ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-    ctx.fill();
+  // 1. Draw Starfield (Fast fillRect with twinkling alpha)
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < stars.length; i++) {
+    const star = stars[i];
+    const starAlpha = Math.max(0.15, Math.min(1, star.alpha + Math.sin(time * 0.003 + star.x) * 0.25));
+    ctx.globalAlpha = starAlpha;
+    ctx.fillRect(star.x, star.y, star.size, star.size);
   }
+  ctx.globalAlpha = 1.0;
 
-  // 2. Draw Retro Vaporwave Sun
+  // 2. Draw Retro Vaporwave Sun with Hardware-Accelerated Radial Glow
   const sunRadius = Math.min(canvas.width, canvas.height) * 0.22;
   const sunCenterX = canvas.width / 2;
   const sunCenterY = horizonY;
 
-  ctx.save();
+  // Ambient sun glow via radial gradient (instant GPU rendering, 0 CPU shadowBlur cost)
+  const sunGlowGrad = ctx.createRadialGradient(
+    sunCenterX, sunCenterY - sunRadius * 0.35, sunRadius * 0.2,
+    sunCenterX, sunCenterY - sunRadius * 0.35, sunRadius * 1.45
+  );
+  sunGlowGrad.addColorStop(0, 'rgba(255, 113, 206, 0.45)');
+  sunGlowGrad.addColorStop(0.55, 'rgba(185, 103, 255, 0.15)');
+  sunGlowGrad.addColorStop(1, 'rgba(9, 3, 20, 0)');
+  ctx.fillStyle = sunGlowGrad;
+  ctx.beginPath();
+  ctx.arc(sunCenterX, sunCenterY - sunRadius * 0.35, sunRadius * 1.45, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Sun hemisphere body
   ctx.beginPath();
   ctx.arc(sunCenterX, sunCenterY, sunRadius, Math.PI, 0, false);
   ctx.closePath();
@@ -580,10 +597,7 @@ function drawBackground(time) {
   sunGrad.addColorStop(0.4, '#ff71ce');
   sunGrad.addColorStop(1, '#b967ff');
   ctx.fillStyle = sunGrad;
-  ctx.shadowColor = '#ff71ce';
-  ctx.shadowBlur = 40;
   ctx.fill();
-  ctx.restore();
 
   // Sun horizontal blinds/stripes
   const numStripes = 7;
@@ -597,54 +611,55 @@ function drawBackground(time) {
   }
 
   // 3. Draw Perspective 3D Synthwave Grid on the ground
-  ctx.save();
   const floorGrad = ctx.createLinearGradient(0, horizonY, 0, canvas.height);
   floorGrad.addColorStop(0, '#120422');
   floorGrad.addColorStop(1, '#05010a');
   ctx.fillStyle = floorGrad;
   ctx.fillRect(0, horizonY, canvas.width, canvas.height - horizonY);
 
-  // Horizon glowing line
+  // Horizon glowing line (dual stroke for crisp neon glow)
+  ctx.strokeStyle = 'rgba(1, 205, 254, 0.35)';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(0, horizonY);
+  ctx.lineTo(canvas.width, horizonY);
+  ctx.stroke();
+
   ctx.strokeStyle = '#01cdfe';
-  ctx.shadowColor = '#01cdfe';
-  ctx.shadowBlur = 15;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(0, horizonY);
   ctx.lineTo(canvas.width, horizonY);
   ctx.stroke();
 
-  // Perspective vertical lines converging to center horizon
+  // Perspective vertical lines (Batched into a single draw call)
   const numLines = 26;
-  ctx.strokeStyle = 'rgba(255, 113, 206, 0.4)';
+  ctx.strokeStyle = 'rgba(255, 113, 206, 0.45)';
   ctx.lineWidth = 1.5;
-  ctx.shadowBlur = 5;
-  ctx.shadowColor = '#ff71ce';
-
+  ctx.beginPath();
   for (let i = -numLines; i <= numLines; i++) {
     const xBottom = (canvas.width / 2) + i * (canvas.width / 16);
-    ctx.beginPath();
     ctx.moveTo(canvas.width / 2, horizonY);
     ctx.lineTo(xBottom, canvas.height);
-    ctx.stroke();
   }
+  ctx.stroke();
 
   // Moving horizontal lines on the grid
   gridOffset = (gridOffset + 0.8) % 30;
   const numHoriz = 14;
+  ctx.lineWidth = 1.5;
   for (let i = 0; i < numHoriz; i++) {
     const progress = (i + (gridOffset / 30)) / numHoriz;
     const lineY = horizonY + Math.pow(progress, 2.5) * (canvas.height - horizonY);
-    const lineAlpha = Math.pow(progress, 1.5);
-    ctx.strokeStyle = `rgba(1, 205, 254, ${lineAlpha * 0.7})`;
+    const lineAlpha = Math.pow(progress, 1.5) * 0.75;
+    ctx.strokeStyle = `rgba(1, 205, 254, ${lineAlpha})`;
     ctx.beginPath();
     ctx.moveTo(0, lineY);
     ctx.lineTo(canvas.width, lineY);
     ctx.stroke();
   }
-  ctx.restore();
 
-  // 4. Update and Draw Particles / Sparks / Trails
+  // 4. Update and Draw Particles / Sparks / Trails (Direct alpha rendering, 0 shadowBlur)
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx;
@@ -657,18 +672,13 @@ function drawBackground(time) {
       continue;
     }
 
-    ctx.save();
-    ctx.fillStyle = p.color;
-    ctx.shadowColor = p.color;
-    ctx.shadowBlur = 8;
     ctx.globalAlpha = Math.max(0, p.alpha);
+    ctx.fillStyle = p.color;
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
     ctx.fill();
-    ctx.restore();
   }
-
-  requestAnimationFrame(drawBackground);
+  ctx.globalAlpha = 1.0;
 }
 
 /* ==========================================================================
@@ -806,11 +816,20 @@ window.addEventListener('pointerdown', unlockAudio, { passive: true });
 window.addEventListener('keydown', unlockAudio, { passive: true });
 window.addEventListener('touchstart', unlockAudio, { passive: true });
 
+function gameLoop(now) {
+  const dt = Math.min((now - lastTime) / 16.666, 2.5); // normalized frame delta
+  lastTime = now;
+
+  updatePhysics(dt);
+  drawBackground(now);
+
+  requestAnimationFrame(gameLoop);
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   updateAudioUI();
   updateVhsUI();
   resizeCanvas();
   initPosition();
-  requestAnimationFrame(animate);
-  requestAnimationFrame(drawBackground);
+  requestAnimationFrame(gameLoop);
 });
